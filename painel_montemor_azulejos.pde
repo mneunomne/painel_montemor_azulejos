@@ -4,19 +4,39 @@ int rows = 14;
 int tileWidth;  // Will be calculated based on the image
 int tileHeight; // Will be calculated based on the image
 String outputFolder = "export/extracted_tiles/"; // Folder to save the tiles
-  PGraphics pg;
+PGraphics pg;
 PImage outputImg; 
-// Extract tile
 float scale = 3.5;
-
 boolean isExporting = true; // Flag to control extraction
+
+PImage gradient;
+
+// 2D array to track tile types: 0 = empty/white, 1+ = fiducial marker ID
+int[][] tileMap;
+// Track which tiles get fiducial markers
+ArrayList<TileInfo> fiducialTiles;
+
+// Helper class to store tile information
+class TileInfo {
+  int x, y;           // Grid position
+  int id;             // Fiducial marker ID
+  boolean isEmpty;    // Whether tile is empty/white
+  
+  TileInfo(int x, int y, int id, boolean isEmpty) {
+    this.x = x;
+    this.y = y;
+    this.id = id;
+    this.isEmpty = isEmpty;
+  }
+}
 
 void setup() {
   size(1100, 678); // Display size (can be adjusted)
+
+  gradient = loadImage("gradient.png");
   
   // Load the source image
   sourceImage = loadImage("painel-montemor-HD-bright.png"); // Replace with your image filename
-
   outputImg = createImage(sourceImage.width, sourceImage.height, RGB);
 
   println("Loaded image: " + sourceImage.width + "x" + sourceImage.height);
@@ -27,24 +47,32 @@ void setup() {
 
   pg = createGraphics(int(tileWidth * scale), int(tileHeight * scale));
   
-  // Extract and save tiles
-  extractTiles();
+  // Initialize tracking arrays
+  tileMap = new int[rows][cols];
+  fiducialTiles = new ArrayList<TileInfo>();
   
-  println("Extraction complete! " + (cols * rows) + " tiles saved to " + outputFolder);
+  // Phase 1: Analyze all tiles and build the map
+  analyzeTiles();
+  
+  // Phase 2: Generate and save tiles with fiducial markers
+  generateTiles();
+  
+  println("Extraction complete! " + (cols * rows) + " tiles processed.");
+  println("Fiducial markers added to " + fiducialTiles.size() + " tiles.");
 
-  // save output image
+  // Save output image
   if (isExporting) {
     outputImg.save("output_image.png");
-    println("Output image saved to " + outputFolder);
+    println("Output image saved.");
   }
 }
 
 void draw() {
   // Display the source image
   image(outputImg, 0, 0, width, height);
-  
+  /*
   // Draw grid to visualize tiles
-  stroke(255, 0, 0);
+  //stroke(255, 0, 0);
   noFill();
   
   float scaleX = (float) width / sourceImage.width;
@@ -52,61 +80,289 @@ void draw() {
   
   for (int y = 0; y < rows; y++) {
     for (int x = 0; x < cols; x++) {
+      // Color code the grid based on tile type
+      if (tileMap[y][x] == 0) {
+        stroke(255, 0, 0); // Red for empty tiles
+      } else {
+        stroke(0, 255, 0); // Green for tiles with fiducial markers
+      }
+      
       rect(x * tileWidth * scaleX, y * tileHeight * scaleY, 
            tileWidth * scaleX, tileHeight * scaleY);
     }
   }
+  */
 }
 
-void extractTiles() {
-  int id = 0;
+// Phase 1: Analyze all tiles and determine which ones need fiducial markers
+void analyzeTiles() {
+  int fiducialId = 0;
+  
   for (int y = 0; y < rows; y++) {
     for (int x = 0; x < cols; x++) {
+      // Extract tile for analysis
+      PImage tempTile = extractTileImage(x, y);
+      
+      // Convert to grayscale for analysis
+      tempTile.filter(GRAY);
+      
+      // Check if tile is empty/border
+      boolean isEmpty = isImageBorder(tempTile);
+      
+      if (isEmpty || random(1) > 0.3 || x < 2 || x > cols - 3 || y < 5 || y > rows - 3) {
+        // Mark as empty tile
+        tileMap[y][x] = 0;
+      } else {
+        // Mark as tile that will get fiducial marker
+        fiducialId++;
+        tileMap[y][x] = fiducialId;
+        fiducialTiles.add(new TileInfo(x, y, fiducialId, false));
+      }
+    }
+  }
+  
+  // Print the tile map for debugging
+  printTileMap();
+}
+
+// Phase 2: Generate and save tiles with fiducial markers
+void generateTiles() {
+  int outputTileWidth = outputImg.width / cols;
+  int outputTileHeight = outputTileWidth;
+  
+  for (int y = 0; y < rows; y++) {
+    for (int x = 0; x < cols; x++) {
+      // Extract and scale tile
+      PImage tile = extractTileImage(x, y);
       int w = int(tileWidth * scale);
       int h = int(tileHeight * scale);
-
-      PImage tile = createImage(w, h, RGB);
+      tile.resize(w, h);
       
-      tile.copy(sourceImage,
-                x * tileWidth, y * tileHeight, tileWidth, tileHeight,
-                0, 0, w, h);
+      // Convert to grayscale
+      tile.filter(GRAY);
       
-      // Convert to grayscale first
-      PImage tileImage = createImage(tile.width, tile.height, RGB);
-      tileImage.copy(tile, 0, 0, tile.width, tile.height, 0, 0, tile.width, tile.height);
-      tileImage.filter(GRAY);
-      
-      // Apply combined dithering
-      int steps = 1; // For binary output
-      float randomFactor = 30; // Adjust for more/less randomness
-      
-      // Choose one of these approaches:
-      // tileImage = createBinaryHalftone(grayscaleTile, randomFactor);
-
-      int outputTileWidth = outputImg.width / cols;
-      int outputTileHeight = outputTileWidth;
-
-      // check if image is all white
-      boolean isAllWhite = isImageBorder(tileImage);
-      if (isAllWhite) {
-        outputImg.copy(tileImage, 0, 0, w, h,  x * outputTileWidth, y * outputTileHeight, outputTileWidth, outputTileHeight);
-        continue; // Skip this tile
+      if (tileMap[y][x] == 0) {
+        // Empty tile - check if it should have diagonal lines passing through
+        tile = addDiagonalLinesToEmptyTile(tile, x, y);
+        
+        // Copy to output image
+        outputImg.copy(tile, 0, 0, w, h, 
+                      x * outputTileWidth, y * outputTileHeight, 
+                      outputTileWidth, outputTileHeight);
+      } else {
+        // Tile with fiducial marker
+        int markerId = tileMap[y][x] - 1; // Convert to 0-based index
+        
+        // Draw fiducial marker with knowledge of surrounding tiles
+        tile = drawFiducialMarkerWithContext(tile, markerId, x, y);
+        
+        // Copy to output image
+        outputImg.copy(tile, 0, 0, w, h, 
+                      x * outputTileWidth, y * outputTileHeight, 
+                      outputTileWidth, outputTileHeight);
+        
+        // Save individual tile
+        String fileName = outputFolder + "tile_" + nf(y+1, 2) + "_" + nf(x+1, 2) + ".png";
+        if (isExporting) tile.save(fileName);
       }
-      // Draw fiducial marker
-      tileImage = drawFiducialMarker(tileImage, id);
-
-      outputImg.copy(tileImage, 0, 0, w, h,  x * outputTileWidth, y * outputTileHeight, outputTileWidth, outputTileHeight);
-      
-      // Save tile with row-column naming
-      String fileName = outputFolder + "tile_" + nf(y+1, 2) + "_" + nf(x+1, 2) + ".png";
-      if (isExporting) tileImage.save(fileName);
-      id++;
     }
   }
 }
 
-// the image is a border if a square of 10x10 pixels in the center is fully white
-boolean isImageBorder (PImage img) {
+// Helper function to extract a tile image
+PImage extractTileImage(int gridX, int gridY) {
+  PImage tile = createImage(tileWidth, tileHeight, RGB);
+  tile.copy(sourceImage,
+            gridX * tileWidth, gridY * tileHeight, tileWidth, tileHeight,
+            0, 0, tileWidth, tileHeight);
+  return tile;
+}
+
+// Add diagonal lines to empty tiles that have markers on their diagonals
+PImage addDiagonalLinesToEmptyTile(PImage tile, int gridX, int gridY) {
+  pg.beginDraw();
+  pg.background(255);
+  pg.imageMode(CENTER);
+  pg.translate(tile.width / 2, tile.height / 2);
+  pg.image(tile, 0, 0, tile.width, tile.height);
+  
+  // Draw diagonal lines if there are markers on the diagonals
+  //drawDiagonalLinesToNeighbors(gridX, gridY, tile.width, tile.height);
+  
+  pg.translate(-tile.width / 2, -tile.height / 2);
+  pg.endDraw();
+
+  return pg.get();
+}
+
+// Enhanced fiducial marker drawing with context awareness
+PImage drawFiducialMarkerWithContext(PImage tile, int id, int gridX, int gridY) {
+  // Load fiducial marker
+  PImage marker = loadImage("aruco_markers/aruco_marker_" + nf(id, 3) + ".png");
+
+  int strokeWeight = int(tile.width * 0.25);
+  
+  // Resize the marker
+  int markerWidth = strokeWeight;
+  int markerHeight = strokeWeight;
+  marker.resize(markerWidth, markerHeight);
+  
+  pg.beginDraw();
+  pg.background(255);
+  pg.imageMode(CENTER);
+  pg.translate(tile.width / 2, tile.height / 2);
+  pg.image(tile, 0, 0, tile.width, tile.height);
+  
+  // Draw white border around the marker
+  pg.fill(255);
+  pg.noStroke();
+  pg.rect(-markerWidth/2 - 2, -markerHeight/2 - 2, markerWidth + 4, markerHeight + 4);
+  
+  // Draw diagonal lines to neighboring fiducial markers
+  //drawDiagonalLinesToNeighbors(gridX, gridY, tile.width, tile.height);
+    
+  int[][] neighbors = {
+    {-1, -1},  {1, -1},  // Top row
+    {-1,  1},  {1,  1}   // Bottom row
+  };
+  pg.stroke(255);
+  pg.strokeWeight(markerWidth + 2);
+  for (int[] neighbor : neighbors) {
+    int nx = gridX + neighbor[0];
+    int ny = gridY + neighbor[1];
+    
+    // Check if neighbor is within bounds and has a fiducial marker
+    // Calculate line direction
+    float startX = 0;
+    float startY = 0;
+    float endX = neighbor[0] * tile.height * 0.5;
+    float endY = neighbor[1] * tile.width * 0.5;
+
+    // 45 degres if diagonal goes from topright to bottomleft
+    float angle;
+    if (neighbor[0] == -1 && neighbor[1] == -1) {
+      angle = 135;
+    } else if (neighbor[0] == 1 && neighbor[1] == -1) {
+      angle = 225;
+    } else if (neighbor[0] == -1 && neighbor[1] == 1) {
+      angle = 45;
+    } else {
+      angle = 315;
+    }
+    // Draw the line
+    pg.pushMatrix();
+    pg.translate(startX, startY);
+    pg.rotate(radians(angle));
+    pg.popMatrix();
+
+    pg.line(startX, startY, endX, endY);
+
+      // draw squares in N intervals at this line segment
+      int n = 5;
+      float stepX = (endX - startX) / n;
+      float stepY = (endY - startY) / n;
+      for (int i = 0; i < n; i++) {
+        float x = startX + stepX * (i+1);
+        float y = startY + stepY * (i+1);
+        pg.pushStyle();
+        pg.pushMatrix();
+        pg.rectMode(CENTER);
+        pg.noStroke();
+        pg.fill((255 / (5-i)) + 50);
+        pg.translate(x, y);
+        pg.rotate(radians(angle));
+        pg.rect(0, 0, strokeWeight/2, strokeWeight);
+        pg.translate(-x, -y);
+        pg.popMatrix();
+        pg.popStyle();
+      }
+    
+   
+  }
+  
+  // Draw the fiducial marker
+  pg.rotate(radians(45));
+  pg.image(marker, 0, 0, markerWidth, markerHeight);
+  pg.rotate(-radians(45));
+  
+  pg.translate(-tile.width / 2, -tile.height / 2);
+  pg.endDraw();
+
+  return pg.get();
+}
+
+// Draw diagonal lines to neighboring tiles that have fiducial markers
+void drawDiagonalLinesToNeighbors(int gridX, int gridY, int tileW, int tileH) {
+  pg.stroke(255);
+  pg.strokeWeight(tileW * 0.1);
+  
+  // Check all 8 neighboring positions
+  int[][] neighbors = {
+    {-1, -1},  {1, -1},  // Top row
+    //{-1,  0},          {1,  0},  // Middle row (excluding self)
+    {-1,  1},  {1,  1}   // Bottom row
+  };
+  
+  for (int[] neighbor : neighbors) {
+    int nx = gridX + neighbor[0];
+    int ny = gridY + neighbor[1];
+    
+    // Check if neighbor is within bounds and has a fiducial marker
+    if (nx >= 0 && nx < cols && ny >= 0 && ny < rows && tileMap[ny][nx] > 0) {
+      // Calculate line direction
+      float startX = 0;
+      float startY = 0;
+      float endX = neighbor[0] * tileW * 0.4;
+      float endY = neighbor[1] * tileH * 0.4;
+
+      
+      // pg.line(startX, startY, endX, endY);
+    }
+  }
+}
+
+// Print the tile map for debugging
+void printTileMap() {
+  println("\nTile Map (0 = empty, 1+ = fiducial marker ID):");
+  for (int y = 0; y < rows; y++) {
+    String row = "";
+    for (int x = 0; x < cols; x++) {
+      row += String.format("%3d", tileMap[y][x]) + " ";
+    }
+    println("Row " + nf(y+1, 2) + ": " + row);
+  }
+  println();
+}
+
+// Get information about a specific tile
+TileInfo getTileInfo(int gridX, int gridY) {
+  for (TileInfo tile : fiducialTiles) {
+    if (tile.x == gridX && tile.y == gridY) {
+      return tile;
+    }
+  }
+  return null;
+}
+
+// Check if a tile has a fiducial marker
+boolean hasFiducialMarker(int gridX, int gridY) {
+  if (gridX < 0 || gridX >= cols || gridY < 0 || gridY >= rows) {
+    return false;
+  }
+  return tileMap[gridY][gridX] > 0;
+}
+
+// Get fiducial marker ID for a tile
+int getFiducialId(int gridX, int gridY) {
+  if (hasFiducialMarker(gridX, gridY)) {
+    return tileMap[gridY][gridX];
+  }
+  return -1;
+}
+
+// Original helper functions (unchanged)
+boolean isImageBorder(PImage img) {
+  img.loadPixels();
   int w = img.width;
   int h = img.height;
   for (int y = 0; y < 10; y++) {
@@ -115,134 +371,22 @@ boolean isImageBorder (PImage img) {
       color pixelColor = img.pixels[loc];
       float brightness = brightness(pixelColor);
       if (brightness < 255) {
-        return false; // Not a border
+        return false;
       }
     }
   }
-  return true; 
+  return true;
 }
 
-PImage drawFiducialMarker (PImage tile, int id) {
-  // load fiducial marker from the folder aruco_markers with filename "aruco_marker_XXX.png"
-  PImage marker = loadImage("aruco_markers/aruco_marker_" + nf(id, 3) + ".png");
-  // resize the marker to 20% of the tile size
-  int markerWidth = int(tile.width * 0.15);
-  int markerHeight = int(tile.height * 0.15);
-  marker.resize(markerWidth, markerHeight);
-  // calculate the position to place the marker in the tile
-  int x = int(tile.width * 0.5 - markerWidth * 0.5);
-  int y = int(tile.height * 0.5 - markerHeight * 0.5);
-  pg.beginDraw();
-  pg.background(255);
-  //pg.imageMode(CENTER);
-  pg.imageMode(CENTER);
-  pg.translate(tile.width / 2, tile.height / 2);
-  pg.image(tile, 0, 0, tile.width, tile.height);
-  // draw white border around the marker
-  pg.fill(255);
-  pg.noStroke();
-  pg.rect(x - 2, y - 2, markerWidth + 4, markerHeight + 4);
-  pg.stroke(255);
-  pg.strokeWeight(markerWidth);
-  pg.line(-tile.width / 2, -tile.height / 2, 0, 0);
-  pg.line(-tile.width / 2, tile.height / 2, 0, 0);
-  pg.line(tile.width / 2, -tile.height / 2, 0, 0);
-  pg.line(tile.width / 2, tile.height / 2, 0, 0);
-  pg.rotate(radians(45));
-  pg.image(marker, 0, 0, markerWidth, markerHeight);
-  // diagonal line
-  pg.rotate(-radians(45));
-  pg.translate(-tile.width / 2, -tile.height / 2);
-  pg.endDraw();
-
-  return pg.get();
-}
-
-// Function to convert an image to binary using random halftone (WITH WHITE AREA PROTECTION)
-PImage createBinaryHalftone(PImage sourceImg, float noiseAmount) {
-  PImage result = createImage(sourceImg.width, sourceImg.height, RGB);
-  sourceImg.loadPixels();
-  result.loadPixels();
-  
-  float threshold = 127; // Middle gray threshold
-  float whiteThreshold = 250; // Pixels above this are kept pure white
-  int margin = 3;
-  
-  for (int y = 0; y < sourceImg.height; y++) {
-    for (int x = 0; x < sourceImg.width; x++) {
-      if (x < margin || x >= sourceImg.width - margin || y < margin || y >= sourceImg.height - margin) {
-        result.pixels[x + y * sourceImg.width] = color(255); // Set border to white
-        continue;
-      }
-
-      int loc = x + y * sourceImg.width;
-      
-      // Get the color
-      color pixelColor = sourceImg.pixels[loc];
-      
-      // Convert to grayscale
-      float brightness = brightness(pixelColor);
-      
-      // If the pixel is already very bright (near white), keep it white
-      if (brightness > whiteThreshold) {
-        result.pixels[loc] = color(255); // Pure white
-      } else {
-        // Apply random halftone only to non-white areas
-        float randomOffset = random(-70, 70); // Random variation for the halftone effect
-        
-        // Set pixel to either black or white based on brightness and random variation
-        if (brightness + randomOffset < threshold) {
-          result.pixels[loc] = color(0); // Black
-        } else {
-          result.pixels[loc] = color(255); // White
-        }
-      }
-    }
-  }
-  
-  result.updatePixels();
-  return result;
-}
-
-// Helper function to get color at pixel coordinates
-color getColorAtIndex(PImage img, int x, int y) {
-  int idx = x + y * img.width;
-  return img.pixels[idx];
-}
-
-// Helper function to set color at pixel coordinates
-void setColorAtIndex(PImage img, int x, int y, color clr) {
-  int idx = x + y * img.width;
-  img.pixels[idx] = clr;
-}
-
-// If you want to save with custom width and height
-void saveResizedTile(PImage tile, String fileName, int saveWidth, int saveHeight) {
-  PImage resized = createImage(saveWidth, saveHeight, RGB);
-  resized.copy(tile, 0, 0, tile.width, tile.height, 0, 0, saveWidth, saveHeight);
-  resized.save(fileName);
-}
-
-// You can use this key press to save with a custom size
+// Key press handler for additional functionality
 void keyPressed() {
-  if (key == 'r') {
-    // Define your desired width and height for saving
-    int saveWidth = 200;  // Change to your desired width
-    int saveHeight = 200; // Change to your desired height
-    
-    for (int y = 0; y < rows; y++) {
-      for (int x = 0; x < cols; x++) {
-        // Extract tile
-        PImage tile = createImage(tileWidth, tileHeight, RGB);
-        tile.copy(sourceImage,
-                  x * tileWidth, y * tileHeight, tileWidth, tileHeight,
-                  0, 0, tileWidth, tileHeight);
-        
-        // Save resized tile
-        String fileName = outputFolder + "resized_tile_" + nf(y+1, 2) + "_" + nf(x+1, 2) + ".png";
-        saveResizedTile(tile, fileName, saveWidth, saveHeight);
-      }
+  if (key == 'p') {
+    printTileMap();
+  } else if (key == 'i') {
+    // Print fiducial tile information
+    println("\nFiducial Tiles:");
+    for (TileInfo tile : fiducialTiles) {
+      println("Grid(" + tile.x + "," + tile.y + ") -> ID: " + tile.id);
     }
-    println("Resized tiles saved with dimensions: " + saveWidth + "x" + saveHeight);
   }
 }
