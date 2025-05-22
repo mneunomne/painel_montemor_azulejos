@@ -1,0 +1,12 @@
+ArUCo Marker Information
+=========================
+
+Dictionary: DICT_7X7_1000
+Marker IDs: 0 to 300
+Total markers: 301
+Marker size: 200x200 pixels
+
+Usage notes:
+- These markers are compatible with OpenCV ArUCo detection
+- Print them on white paper with black ink for best results
+- Ensure good lighting and avoid reflections when using

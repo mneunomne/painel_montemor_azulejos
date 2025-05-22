@@ -3,28 +3,40 @@ int cols = 22;
 int rows = 14;
 int tileWidth;  // Will be calculated based on the image
 int tileHeight; // Will be calculated based on the image
-String outputFolder = "extracted_tiles/"; // Folder to save the tiles
-
+String outputFolder = "/export/extracted_tiles/"; // Folder to save the tiles
+  PGraphics pg;
 PImage outputImg; 
+      // Extract tile
+      float scale = 3.5;
+
+boolean isExporting = true; // Flag to control extraction
 
 void setup() {
-  size(2200, 1356); // Display size (can be adjusted)
-
-  outputImg = createImage(width, height, RGB);
+  size(1100, 678); // Display size (can be adjusted)
   
   // Load the source image
-  sourceImage = loadImage("painel-montemor-HD-contrast-inverted.png"); // Replace with your image filename
+  sourceImage = loadImage("painel-montemor-HD-bright.png"); // Replace with your image filename
+
+  outputImg = createImage(sourceImage.width, sourceImage.height, RGB);
 
   println("Loaded image: " + sourceImage.width + "x" + sourceImage.height);
   
   // Calculate tile dimensions based on the image size
   tileWidth = sourceImage.width / cols;
   tileHeight = tileWidth;
+
+  pg = createGraphics(int(tileWidth * scale), int(tileHeight * scale));
   
   // Extract and save tiles
   extractTiles();
   
   println("Extraction complete! " + (cols * rows) + " tiles saved to " + outputFolder);
+
+  // save output image
+  if (isExporting) {
+    outputImg.save("output_image.png");
+    println("Output image saved to " + outputFolder);
+  }
 }
 
 void draw() {
@@ -47,11 +59,9 @@ void draw() {
 }
 
 void extractTiles() {
+  int id = 0;
   for (int y = 0; y < rows; y++) {
     for (int x = 0; x < cols; x++) {
-      // Extract tile
-      float scale = 3.5;
-
       int w = int(tileWidth * scale);
       int h = int(tileHeight * scale);
 
@@ -61,12 +71,6 @@ void extractTiles() {
                 x * tileWidth, y * tileHeight, tileWidth, tileHeight,
                 0, 0, w, h);
       
-      // Convert to grayscale and add noise grain
-      float noiseAmount = 20.0; // Adjust this value to control the noise intensity
-      PImage grayscaleNoisyTile = addGrayscaleNoiseGrain(tile, noiseAmount);
-
-      PImage binaryTile = createBinaryHalftone(grayscaleNoisyTile);//createBinaryHalftone(grayscaleNoisyTile);
-
       // Convert to grayscale first
       PImage grayscaleTile = createImage(tile.width, tile.height, RGB);
       grayscaleTile.copy(tile, 0, 0, tile.width, tile.height, 0, 0, tile.width, tile.height);
@@ -77,62 +81,63 @@ void extractTiles() {
       float randomFactor = 30; // Adjust for more/less randomness
       
       // Choose one of these approaches:
-      PImage ditheredTile = applyCombinedBinaryDither(grayscaleTile, randomFactor);
+      PImage binaryTile = createBinaryHalftone(grayscaleTile, randomFactor);
 
       int outputTileWidth = outputImg.width / cols;
       int outputTileHeight = outputTileWidth;
 
-      outputImg.copy(ditheredTile, 0, 0, w, h, 
-                x * outputTileWidth, y * outputTileHeight, outputTileWidth, outputTileHeight);
+      // check if image is all white
+      boolean isAllWhite = true;
+      for (int i = 0; i < binaryTile.pixels.length; i++) {
+        if (red(binaryTile.pixels[i]) < 255) {
+          isAllWhite = false;
+          break;
+        }
+      }
+      if (isAllWhite) {
+        println("Tile " + (y * cols + x) + " is all white, skipping.");
+        outputImg.copy(binaryTile, 0, 0, w, h,  x * outputTileWidth, y * outputTileHeight, outputTileWidth, outputTileHeight);
+        continue; // Skip this tile
+      }
+      // Draw fiducial marker
+      binaryTile = drawFiducialMarker(binaryTile, id);
+
+      outputImg.copy(binaryTile, 0, 0, w, h,  x * outputTileWidth, y * outputTileHeight, outputTileWidth, outputTileHeight);
       
       // Save tile with row-column naming
       String fileName = outputFolder + "tile_" + nf(y+1, 2) + "_" + nf(x+1, 2) + ".png";
-      ditheredTile.save(fileName);
+      if (isExporting) binaryTile.save(fileName);
+      id++;
     }
   }
 }
 
-// Function to convert image to grayscale and add grayscale noise (WITH WHITE AREA PROTECTION)
-PImage addGrayscaleNoiseGrain(PImage img, float noiseAmount) {
-  PImage result = createImage(img.width, img.height, RGB);
-  img.loadPixels();
-  result.loadPixels();
-  
-  float whiteThreshold = 240; // Pixels above this value are considered "pure white"
-  
-  for (int y = 0; y < img.height; y++) {
-    for (int x = 0; x < img.width; x++) {
-      int loc = x + y * img.width;
-      
-      // Get the original pixel color
-      color pixelColor = img.pixels[loc];
-      
-      // Convert to grayscale (average method)
-      float gray = (red(pixelColor) + green(pixelColor) + blue(pixelColor)) / 3;
-      
-      // Only add noise if the area is NOT pure white
-      if (gray < whiteThreshold) {
-        // Generate a random value for noise
-        float noiseValue = random(-noiseAmount, noiseAmount);
-        
-        // Add noise to grayscale value
-        gray += noiseValue;
-      }
-      
-      // Constrain value to valid range
-      gray = constrain(gray, 0, 255);
-      
-      // Set the result pixel with the grayscale value
-      result.pixels[loc] = color(gray);
-    }
-  }
-  
-  result.updatePixels();
-  return result;
+PImage drawFiducialMarker (PImage tile, int id) {
+  // load fiducial marker from the folder aruco_markers with filename "aruco_marker_XXX.png"
+  PImage marker = loadImage("aruco_markers/aruco_marker_" + nf(id, 3) + ".png");
+  // resize the marker to 20% of the tile size
+  int markerWidth = int(tile.width * 0.2);
+  int markerHeight = int(tile.height * 0.2);
+  marker.resize(markerWidth, markerHeight);
+  // calculate the position to place the marker in the tile
+  int x = int(tile.width * 0.5 - markerWidth * 0.5);
+  int y = int(tile.height * 0.5 - markerHeight * 0.5);
+  pg.beginDraw();
+  pg.background(255);
+  //pg.imageMode(CENTER);
+  pg.image(tile, 0, 0, tile.width, tile.height);
+  // draw white border around the marker
+  pg.fill(255);
+  pg.noStroke();
+  pg.rect(x - 2, y - 2, markerWidth + 4, markerHeight + 4);
+  pg.image(marker, x, y, markerWidth, markerHeight);
+  pg.endDraw();
+
+  return pg.get();
 }
 
 // Function to convert an image to binary using random halftone (WITH WHITE AREA PROTECTION)
-PImage createBinaryHalftone(PImage sourceImg) {
+PImage createBinaryHalftone(PImage sourceImg, float noiseAmount) {
   PImage result = createImage(sourceImg.width, sourceImg.height, RGB);
   sourceImg.loadPixels();
   result.loadPixels();
@@ -177,43 +182,6 @@ PImage createBinaryHalftone(PImage sourceImg) {
   return result;
 }
 
-// Function to apply Shiffman's dithering to an image
-PImage applyDither(PImage img, int steps) {
-  // Create a copy of the image to work with
-  PImage result = img.copy();
-  result.loadPixels();
-  
-  for (int y = 0; y < result.height; y++) {
-    for (int x = 0; x < result.width; x++) {
-      // Get current pixel color
-      color clr = getColorAtIndex(result, x, y);
-      float oldR = red(clr);
-      float oldG = green(clr);
-      float oldB = blue(clr);
-      
-      // Find closest step for each color channel
-      float newR = closestStep(255, steps, oldR);
-      float newG = closestStep(255, steps, oldG);
-      float newB = closestStep(255, steps, oldB);
-      
-      // Set new color
-      color newClr = color(newR, newG, newB);
-      setColorAtIndex(result, x, y, newClr);
-      
-      // Calculate error
-      float errR = oldR - newR;
-      float errG = oldG - newG;
-      float errB = oldB - newB;
-      
-      // Distribute error to neighboring pixels
-      distributeError(result, x, y, errR, errG, errB);
-    }
-  }
-  
-  result.updatePixels();
-  return result;
-}
-
 // Helper function to get color at pixel coordinates
 color getColorAtIndex(PImage img, int x, int y) {
   int idx = x + y * img.width;
@@ -226,168 +194,11 @@ void setColorAtIndex(PImage img, int x, int y, color clr) {
   img.pixels[idx] = clr;
 }
 
-// Finds the closest step for a given value
-float closestStep(float max, int steps, float value) {
-  return round(steps * value / 255) * floor(255 / steps);
-}
-
-// Distribute error to neighboring pixels using Floyd-Steinberg dithering
-void distributeError(PImage img, int x, int y, float errR, float errG, float errB) {
-  addError(img, 7/16.0, x + 1, y, errR, errG, errB);
-  addError(img, 3/16.0, x - 1, y + 1, errR, errG, errB);
-  addError(img, 5/16.0, x, y + 1, errR, errG, errB);
-  addError(img, 1/16.0, x + 1, y + 1, errR, errG, errB);
-}
-
-// Add weighted error to a pixel
-void addError(PImage img, float factor, int x, int y, float errR, float errG, float errB) {
-  // Skip pixels outside the image
-  if (x < 0 || x >= img.width || y < 0 || y >= img.height) return;
-  
-  color clr = getColorAtIndex(img, x, y);
-  float r = red(clr);
-  float g = green(clr);
-  float b = blue(clr);
-  
-  // Add error with given factor
-  r = constrain(r + errR * factor, 0, 255);
-  g = constrain(g + errG * factor, 0, 255);
-  b = constrain(b + errB * factor, 0, 255);
-  
-  color newClr = color(r, g, b);
-  setColorAtIndex(img, x, y, newClr);
-}
-
 // If you want to save with custom width and height
 void saveResizedTile(PImage tile, String fileName, int saveWidth, int saveHeight) {
   PImage resized = createImage(saveWidth, saveHeight, RGB);
   resized.copy(tile, 0, 0, tile.width, tile.height, 0, 0, saveWidth, saveHeight);
   resized.save(fileName);
-}
-
-// FIXED: Function to apply binary dither WITH WHITE AREA PROTECTION
-PImage applyCombinedBinaryDither(PImage img, float randomFactor) {
-  // Create a copy of the image to work with
-  PImage result = img.copy();
-  result.loadPixels();
-  
-  float whiteThreshold = 240; // Pixels above this value are kept pure white
-  
-  for (int y = 0; y < result.height; y++) {
-    for (int x = 0; x < result.width; x++) {
-      // Get current pixel and convert to grayscale
-      color clr = getColorAtIndex(result, x, y);
-      float oldGray = brightness(clr);
-      
-      // If pixel is already very bright (near white), keep it white and skip processing
-      if (oldGray > whiteThreshold) {
-        setColorAtIndex(result, x, y, color(255)); // Pure white
-        continue; // Skip dithering for this pixel
-      }
-      
-      // Add random noise BEFORE thresholding (only for non-white areas)
-      float randomNoise = random(-randomFactor, randomFactor);
-      oldGray = constrain(oldGray + randomNoise, 0, 255);
-      
-      // Binary thresholding (0 or 255 only)
-      float threshold = 127;
-      float newGray = (oldGray < threshold) ? 0 : 255;
-      
-      // Set new color (pure black or white)
-      color newClr = color(newGray);
-      setColorAtIndex(result, x, y, newClr);
-      
-      // Calculate error for Floyd-Steinberg distribution
-      float err = oldGray - newGray;
-      
-      // Distribute error to neighboring pixels (this adds the "structure" from Shiffman's method)
-      distributeBinaryErrorProtected(result, x, y, err, whiteThreshold);
-    }
-  }
-  
-  result.updatePixels();
-  return result;
-}
-
-// FIXED: Distribute error for binary dithering WITH WHITE AREA PROTECTION
-void distributeBinaryErrorProtected(PImage img, int x, int y, float err, float whiteThreshold) {
-  addBinaryErrorProtected(img, 7/16.0, x + 1, y, err, whiteThreshold);
-  addBinaryErrorProtected(img, 3/16.0, x - 1, y + 1, err, whiteThreshold);
-  addBinaryErrorProtected(img, 5/16.0, x, y + 1, err, whiteThreshold);
-  addBinaryErrorProtected(img, 1/16.0, x + 1, y + 1, err, whiteThreshold);
-}
-
-// FIXED: Add weighted error to a pixel (WITH WHITE AREA PROTECTION)
-void addBinaryErrorProtected(PImage img, float factor, int x, int y, float err, float whiteThreshold) {
-  // Skip pixels outside the image
-  if (x < 0 || x >= img.width || y < 0 || y >= img.height) return;
-  
-  color clr = getColorAtIndex(img, x, y);
-  float gray = brightness(clr);
-  
-  // Don't add error to pixels that are already very bright (pure white areas)
-  if (gray > whiteThreshold) return;
-  
-  // Add error with given factor
-  gray = constrain(gray + err * factor, 0, 255);
-  
-  color newClr = color(gray);
-  setColorAtIndex(img, x, y, newClr);
-}
-
-// Alternative approach: Add randomness to the error distribution
-PImage applyCombinedDitherV2(PImage img, int steps, float randomFactor) {
-  // Create a copy of the image to work with
-  PImage result = img.copy();
-  result.loadPixels();
-  
-  for (int y = 0; y < result.height; y++) {
-    for (int x = 0; x < result.width; x++) {
-      // Get current pixel color
-      color clr = getColorAtIndex(result, x, y);
-      float oldR = red(clr);
-      float oldG = green(clr);
-      float oldB = blue(clr);
-      
-      // Find closest step for each color channel (Shiffman's method)
-      float newR = closestStep(255, steps, oldR);
-      float newG = closestStep(255, steps, oldG);
-      float newB = closestStep(255, steps, oldB);
-      
-      // Set new color
-      color newClr = color(newR, newG, newB);
-      setColorAtIndex(result, x, y, newClr);
-      
-      // Calculate error
-      float errR = oldR - newR;
-      float errG = oldG - newG;
-      float errB = oldB - newB;
-      
-      // Distribute error with random variation
-      distributeErrorWithRandom(result, x, y, errR, errG, errB, randomFactor);
-    }
-  }
-  
-  result.updatePixels();
-  return result;
-}
-
-// Modified error distribution with randomness
-void distributeErrorWithRandom(PImage img, int x, int y, float errR, float errG, float errB, float randomFactor) {
-  // Add random variation to the Floyd-Steinberg coefficients
-  float r1 = 7/16.0 + random(-randomFactor, randomFactor) * 0.1;
-  float r2 = 3/16.0 + random(-randomFactor, randomFactor) * 0.1;
-  float r3 = 5/16.0 + random(-randomFactor, randomFactor) * 0.1;
-  float r4 = 1/16.0 + random(-randomFactor, randomFactor) * 0.1;
-  
-  // Normalize to maintain total of 1.0
-  float total = r1 + r2 + r3 + r4;
-  r1 /= total; r2 /= total; r3 /= total; r4 /= total;
-  
-  addError(img, r1, x + 1, y, errR, errG, errB);
-  addError(img, r2, x - 1, y + 1, errR, errG, errB);
-  addError(img, r3, x, y + 1, errR, errG, errB);
-  addError(img, r4, x + 1, y + 1, errR, errG, errB);
 }
 
 // You can use this key press to save with a custom size
