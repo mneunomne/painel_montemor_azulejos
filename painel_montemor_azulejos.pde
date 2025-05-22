@@ -3,11 +3,11 @@ int cols = 22;
 int rows = 14;
 int tileWidth;  // Will be calculated based on the image
 int tileHeight; // Will be calculated based on the image
-String outputFolder = "/export/extracted_tiles/"; // Folder to save the tiles
+String outputFolder = "export/extracted_tiles/"; // Folder to save the tiles
   PGraphics pg;
 PImage outputImg; 
-      // Extract tile
-      float scale = 3.5;
+// Extract tile
+float scale = 3.5;
 
 boolean isExporting = true; // Flag to control extraction
 
@@ -72,52 +72,62 @@ void extractTiles() {
                 0, 0, w, h);
       
       // Convert to grayscale first
-      PImage grayscaleTile = createImage(tile.width, tile.height, RGB);
-      grayscaleTile.copy(tile, 0, 0, tile.width, tile.height, 0, 0, tile.width, tile.height);
-      grayscaleTile.filter(GRAY);
+      PImage tileImage = createImage(tile.width, tile.height, RGB);
+      tileImage.copy(tile, 0, 0, tile.width, tile.height, 0, 0, tile.width, tile.height);
+      tileImage.filter(GRAY);
       
       // Apply combined dithering
       int steps = 1; // For binary output
       float randomFactor = 30; // Adjust for more/less randomness
       
       // Choose one of these approaches:
-      PImage binaryTile = createBinaryHalftone(grayscaleTile, randomFactor);
+      // tileImage = createBinaryHalftone(grayscaleTile, randomFactor);
 
       int outputTileWidth = outputImg.width / cols;
       int outputTileHeight = outputTileWidth;
 
       // check if image is all white
-      boolean isAllWhite = true;
-      for (int i = 0; i < binaryTile.pixels.length; i++) {
-        if (red(binaryTile.pixels[i]) < 255) {
-          isAllWhite = false;
-          break;
-        }
-      }
+      boolean isAllWhite = isImageBorder(tileImage);
       if (isAllWhite) {
-        println("Tile " + (y * cols + x) + " is all white, skipping.");
-        outputImg.copy(binaryTile, 0, 0, w, h,  x * outputTileWidth, y * outputTileHeight, outputTileWidth, outputTileHeight);
+        outputImg.copy(tileImage, 0, 0, w, h,  x * outputTileWidth, y * outputTileHeight, outputTileWidth, outputTileHeight);
         continue; // Skip this tile
       }
       // Draw fiducial marker
-      binaryTile = drawFiducialMarker(binaryTile, id);
+      tileImage = drawFiducialMarker(tileImage, id);
 
-      outputImg.copy(binaryTile, 0, 0, w, h,  x * outputTileWidth, y * outputTileHeight, outputTileWidth, outputTileHeight);
+      outputImg.copy(tileImage, 0, 0, w, h,  x * outputTileWidth, y * outputTileHeight, outputTileWidth, outputTileHeight);
       
       // Save tile with row-column naming
       String fileName = outputFolder + "tile_" + nf(y+1, 2) + "_" + nf(x+1, 2) + ".png";
-      if (isExporting) binaryTile.save(fileName);
+      if (isExporting) tileImage.save(fileName);
       id++;
     }
   }
+}
+
+// the image is a border if a square of 10x10 pixels in the center is fully white
+boolean isImageBorder (PImage img) {
+  int w = img.width;
+  int h = img.height;
+  for (int y = 0; y < 10; y++) {
+    for (int x = 0; x < 10; x++) {
+      int loc = (w / 2 - 5 + x) + (h / 2 - 5 + y) * w;
+      color pixelColor = img.pixels[loc];
+      float brightness = brightness(pixelColor);
+      if (brightness < 255) {
+        return false; // Not a border
+      }
+    }
+  }
+  return true; 
 }
 
 PImage drawFiducialMarker (PImage tile, int id) {
   // load fiducial marker from the folder aruco_markers with filename "aruco_marker_XXX.png"
   PImage marker = loadImage("aruco_markers/aruco_marker_" + nf(id, 3) + ".png");
   // resize the marker to 20% of the tile size
-  int markerWidth = int(tile.width * 0.2);
-  int markerHeight = int(tile.height * 0.2);
+  int markerWidth = int(tile.width * 0.15);
+  int markerHeight = int(tile.height * 0.15);
   marker.resize(markerWidth, markerHeight);
   // calculate the position to place the marker in the tile
   int x = int(tile.width * 0.5 - markerWidth * 0.5);
@@ -125,12 +135,24 @@ PImage drawFiducialMarker (PImage tile, int id) {
   pg.beginDraw();
   pg.background(255);
   //pg.imageMode(CENTER);
+  pg.imageMode(CENTER);
+  pg.translate(tile.width / 2, tile.height / 2);
   pg.image(tile, 0, 0, tile.width, tile.height);
   // draw white border around the marker
   pg.fill(255);
   pg.noStroke();
   pg.rect(x - 2, y - 2, markerWidth + 4, markerHeight + 4);
-  pg.image(marker, x, y, markerWidth, markerHeight);
+  pg.stroke(255);
+  pg.strokeWeight(markerWidth);
+  pg.line(-tile.width / 2, -tile.height / 2, 0, 0);
+  pg.line(-tile.width / 2, tile.height / 2, 0, 0);
+  pg.line(tile.width / 2, -tile.height / 2, 0, 0);
+  pg.line(tile.width / 2, tile.height / 2, 0, 0);
+  pg.rotate(radians(45));
+  pg.image(marker, 0, 0, markerWidth, markerHeight);
+  // diagonal line
+  pg.rotate(-radians(45));
+  pg.translate(-tile.width / 2, -tile.height / 2);
   pg.endDraw();
 
   return pg.get();

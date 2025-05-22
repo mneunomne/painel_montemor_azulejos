@@ -2,8 +2,8 @@ ArUCo Marker Information
 =========================
 
 Dictionary: DICT_7X7_1000
-Marker IDs: 0 to 300
-Total markers: 301
+Marker IDs: 0 to 500
+Total markers: 501
 Marker size: 200x200 pixels
 
 Usage notes:
