@@ -5,12 +5,12 @@ int tileWidth;  // Will be calculated based on the image
 int tileHeight; // Will be calculated based on the image
 String outputFolder = "export/extracted_tiles/"; // Folder to save the tiles
 PGraphics pg;
-PImage outputImg; 
+PImage outputImg;
 float scale = 3.5;
 boolean isExporting = true; // Flag to control extraction
 
 PImage gradient;
-
+PImage barcode; // Load the barcode image
 // 2D array to track tile types: 0 = empty/white, 1+ = fiducial marker ID
 int[][] tileMap;
 // Track which tiles get fiducial markers
@@ -21,7 +21,7 @@ class TileInfo {
   int x, y;           // Grid position
   int id;             // Fiducial marker ID
   boolean isEmpty;    // Whether tile is empty/white
-  
+
   TileInfo(int x, int y, int id, boolean isEmpty) {
     this.x = x;
     this.y = y;
@@ -34,29 +34,30 @@ void setup() {
   size(1100, 678); // Display size (can be adjusted)
 
   gradient = loadImage("gradient.png");
-  
+  barcode = loadImage("barcode.png");
+
   // Load the source image
-  sourceImage = loadImage("painel-montemor-HD-bright.png"); // Replace with your image filename
+  sourceImage = loadImage("painel-montemor-HD-contrast-inverted.png"); // Replace with your image filename
   outputImg = createImage(sourceImage.width, sourceImage.height, RGB);
 
   println("Loaded image: " + sourceImage.width + "x" + sourceImage.height);
-  
+
   // Calculate tile dimensions based on the image size
   tileWidth = sourceImage.width / cols;
   tileHeight = tileWidth;
 
   pg = createGraphics(int(tileWidth * scale), int(tileHeight * scale));
-  
+
   // Initialize tracking arrays
   tileMap = new int[rows][cols];
   fiducialTiles = new ArrayList<TileInfo>();
-  
+
   // Phase 1: Analyze all tiles and build the map
   analyzeTiles();
-  
+
   // Phase 2: Generate and save tiles with fiducial markers
   generateTiles();
-  
+
   println("Extraction complete! " + (cols * rows) + " tiles processed.");
   println("Fiducial markers added to " + fiducialTiles.size() + " tiles.");
 
@@ -87,7 +88,7 @@ void draw() {
         stroke(0, 255, 0); // Green for tiles with fiducial markers
       }
       
-      rect(x * tileWidth * scaleX, y * tileHeight * scaleY, 
+      rect(x * tileWidth * scaleX, y * tileHeight * scaleY,
            tileWidth * scaleX, tileHeight * scaleY);
     }
   }
@@ -131,7 +132,7 @@ void generateTiles() {
   int outputTileHeight = outputTileWidth;
   
   for (int y = 0; y < rows; y++) {
-    for (int x = 0; x < cols; x++) {
+      for (int x = 0; x < cols; x++) {
       // Extract and scale tile
       PImage tile = extractTileImage(x, y);
       int w = int(tileWidth * scale);
@@ -142,13 +143,7 @@ void generateTiles() {
       tile.filter(GRAY);
       
       if (tileMap[y][x] == 0) {
-        // Empty tile - check if it should have diagonal lines passing through
-        tile = addDiagonalLinesToEmptyTile(tile, x, y);
-        
-        // Copy to output image
-        outputImg.copy(tile, 0, 0, w, h, 
-                      x * outputTileWidth, y * outputTileHeight, 
-                      outputTileWidth, outputTileHeight);
+        // Empty tile
       } else {
         // Tile with fiducial marker
         int markerId = tileMap[y][x] - 1; // Convert to 0-based index
@@ -156,15 +151,17 @@ void generateTiles() {
         // Draw fiducial marker with knowledge of surrounding tiles
         tile = drawFiducialMarkerWithContext(tile, markerId, x, y);
         
-        // Copy to output image
-        outputImg.copy(tile, 0, 0, w, h, 
-                      x * outputTileWidth, y * outputTileHeight, 
+      }
+
+      // Copy to output image
+        outputImg.copy(tile, 0, 0, w, h,
+                      x * outputTileWidth, y * outputTileHeight,
                       outputTileWidth, outputTileHeight);
         
-        // Save individual tile
-        String fileName = outputFolder + "tile_" + nf(y+1, 2) + "_" + nf(x+1, 2) + ".png";
-        if (isExporting) tile.save(fileName);
-      }
+
+      // Save individual tile
+      String fileName = outputFolder + "tile_" + nf(y+1, 2) + "_" + nf(x+1, 2) + ".png";
+      if (isExporting) tile.save(fileName);
     }
   }
 }
@@ -200,7 +197,7 @@ PImage drawFiducialMarkerWithContext(PImage tile, int id, int gridX, int gridY) 
   // Load fiducial marker
   PImage marker = loadImage("aruco_markers/aruco_marker_" + nf(id, 3) + ".png");
 
-  int strokeWeight = int(tile.width * 0.25);
+  int strokeWeight = int(tile.width * 0.14);
   
   // Resize the marker
   int markerWidth = strokeWeight;
@@ -254,30 +251,38 @@ PImage drawFiducialMarkerWithContext(PImage tile, int id, int gridX, int gridY) 
     pg.translate(startX, startY);
     pg.rotate(radians(angle));
     pg.popMatrix();
-
     pg.line(startX, startY, endX, endY);
 
-      // draw squares in N intervals at this line segment
-      int n = 5;
-      float stepX = (endX - startX) / n;
-      float stepY = (endY - startY) / n;
-      for (int i = 0; i < n; i++) {
-        float x = startX + stepX * (i+1);
-        float y = startY + stepY * (i+1);
-        pg.pushStyle();
-        pg.pushMatrix();
-        pg.rectMode(CENTER);
-        pg.noStroke();
-        pg.fill((255 / (5-i)) + 50);
-        pg.translate(x, y);
-        pg.rotate(radians(angle));
-        pg.rect(0, 0, strokeWeight/2, strokeWeight);
-        pg.translate(-x, -y);
-        pg.popMatrix();
-        pg.popStyle();
-      }
+    int w = tile.width/2;
+    int h = markerWidth;
     
-   
+    pg.pushMatrix();
+    pg.translate(neighbor[1] * tile.width * 0.25, neighbor[0] * tile.height * 0.25);
+    pg.rotate(radians(angle+90));
+    pg.image(barcode, 0, 0, w, h);
+    pg.popMatrix();
+    
+    // draw squares in N intervals at this line segment
+    /*
+    int n = 5;
+    float stepX = (endX - startX) / n;
+    float stepY = (endY - startY) / n;
+    for (int i = 0; i < n-1; i++) {
+      float x = startX + stepX * (i+1);
+      float y = startY + stepY * (i+1);
+      PImage _marker = loadImage("aruco_markers/aruco_marker_" + nf(int(random(500)), 3) + ".png");
+      pg.pushStyle();
+      pg.pushMatrix();
+      pg.strokeWeight(2);
+      pg.translate(x, y);
+      pg.imageMode(CENTER);
+      pg.rotate(radians(angle));
+      pg.image(_marker, 0, 0, markerWidth-10, markerHeight-10);
+      pg.translate(-x, -y);
+      pg.popMatrix();
+      pg.popStyle();
+    }
+    */
   }
   
   // Draw the fiducial marker
