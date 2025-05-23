@@ -146,17 +146,19 @@ void generateTiles() {
         // Empty tile
       } else {
         // Tile with fiducial marker
-        int markerId = tileMap[y][x] - 1; // Convert to 0-based index
+        // int markerId = tileMap[y][x] - 1; // Convert to 0-based index
         
         // Draw fiducial marker with knowledge of surrounding tiles
-        tile = drawFiducialMarkerWithContext(tile, markerId, x, y);
+        // tile = drawFiducialMarkerWithContext(tile, markerId, x, y);
         
       }
 
+      tile = createBinaryHalftone(tile);
+
       // Copy to output image
-        outputImg.copy(tile, 0, 0, w, h,
-                      x * outputTileWidth, y * outputTileHeight,
-                      outputTileWidth, outputTileHeight);
+      outputImg.copy(tile, 0, 0, w, h,
+                    x * outputTileWidth, y * outputTileHeight,
+                    outputTileWidth, outputTileHeight);
         
 
       // Save individual tile
@@ -165,6 +167,41 @@ void generateTiles() {
     }
   }
 }
+
+// Function to convert an image to binary using random halftone
+PImage createBinaryHalftone(PImage sourceImg) {
+  PImage result = createImage(sourceImg.width, sourceImg.height, RGB);
+  sourceImg.loadPixels();
+  result.loadPixels();
+  
+  float threshold = 100; // Middle gray threshold
+  
+  for (int y = 0; y < sourceImg.height; y++) {
+    for (int x = 0; x < sourceImg.width; x++) {
+      int loc = x + y * sourceImg.width;
+      
+      // Get the color
+      color pixelColor = sourceImg.pixels[loc];
+      
+      // Convert to grayscale
+      float brightness = brightness(pixelColor);
+      
+      // Apply random halftone
+      float randomOffset = random(-40, 40); // Random variation for the halftone effect
+      
+      // Set pixel to either black or white based on brightness and random variation
+      if (brightness + randomOffset < threshold) {
+        result.pixels[loc] = color(0); // Black
+      } else {
+        result.pixels[loc] = color(255); // White
+      }
+    }
+  }
+  
+  result.updatePixels();
+  return result;
+}
+
 
 // Helper function to extract a tile image
 PImage extractTileImage(int gridX, int gridY) {
