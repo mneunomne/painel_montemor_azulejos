@@ -11,6 +11,7 @@ boolean isExporting = true; // Flag to control extraction
 
 PImage gradient;
 PImage barcode; // Load the barcode image
+PImage rectangle;
 // 2D array to track tile types: 0 = empty/white, 1+ = fiducial marker ID
 int[][] tileMap;
 // Track which tiles get fiducial markers
@@ -35,6 +36,7 @@ void setup() {
 
   gradient = loadImage("gradient.png");
   barcode = loadImage("barcode.png");
+  rectangle = loadImage("chain.png");
 
   // Load the source image
   sourceImage = loadImage("painel-montemor-HD-contrast-inverted.png"); // Replace with your image filename
@@ -146,10 +148,12 @@ void generateTiles() {
         // Empty tile
       } else {
         // Tile with fiducial marker
-        // int markerId = tileMap[y][x] - 1; // Convert to 0-based index
+        int markerId = tileMap[y][x] - 1; // Convert to 0-based index
         
-        // Draw fiducial marker with knowledge of surrounding tiles
-        // tile = drawFiducialMarkerWithContext(tile, markerId, x, y);
+        //Draw fiducial marker with knowledge of surrounding tiles
+        tile = drawFiducialMarkerWithContext(tile, markerId, x, y);
+
+        println("Tile (" + x + "," + y + ") -> Fiducial ID: " + markerId);
         
       }
 
@@ -246,11 +250,14 @@ PImage drawFiducialMarkerWithContext(PImage tile, int id, int gridX, int gridY) 
   pg.imageMode(CENTER);
   pg.translate(tile.width / 2, tile.height / 2);
   pg.image(tile, 0, 0, tile.width, tile.height);
-  
+
+  pg.image(rectangle, 0, 0, tile.width, tile.height);
+      /*
+
   // Draw white border around the marker
   pg.fill(255);
   pg.noStroke();
-  pg.rect(-markerWidth/2 - 2, -markerHeight/2 - 2, markerWidth + 4, markerHeight + 4);
+  //pg.rect(-markerWidth/2 - 2, -markerHeight/2 - 2, markerWidth + 4, markerHeight + 4);
   
   // Draw diagonal lines to neighboring fiducial markers
   //drawDiagonalLinesToNeighbors(gridX, gridY, tile.width, tile.height);
@@ -299,8 +306,6 @@ PImage drawFiducialMarkerWithContext(PImage tile, int id, int gridX, int gridY) 
     pg.image(barcode, 0, 0, w, h);
     pg.popMatrix();
     
-    // draw squares in N intervals at this line segment
-    /*
     int n = 5;
     float stepX = (endX - startX) / n;
     float stepY = (endY - startY) / n;
@@ -319,8 +324,8 @@ PImage drawFiducialMarkerWithContext(PImage tile, int id, int gridX, int gridY) 
       pg.popMatrix();
       pg.popStyle();
     }
-    */
   }
+    */
   
   // Draw the fiducial marker
   pg.rotate(radians(45));
